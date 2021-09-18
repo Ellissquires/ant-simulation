@@ -7,16 +7,17 @@ public class Nest : MonoBehaviour {
     Transform antPrefab;
 
     Ant[] ants;
-    int antCount = 10;
+    int antCount = 1000;
 
     public float wanderStrength = 0.5f;
-    public float steerStrength = 2.0f;
+    public float steerStrength = 1.0f;
     public float maxSpeed = 3.0f;
 
     public float width = 2.0f;
     public float height = 2.0f;
 
-    public float antViewRadius = 3.0f;
+    public float antViewRadius = 0.5f;
+    public bool enableViewRadius = true;
 
     LayerMask foodLayer;
 
@@ -27,14 +28,18 @@ public class Nest : MonoBehaviour {
             Transform antBody  = Instantiate(antPrefab, Vector3.zero, Quaternion.identity);
 
             antBody.SetParent(transform, false);
-            ants[i] = new Ant(antBody);
+            Ant newAnt = new Ant(antBody, antViewRadius, foodLayer);
+            ants[i] = newAnt;
         }
     }
 
     private void Update() {
         for (int i = 0; i < ants.Length; i++) {
             Ant ant = ants[i];
-            // Wander aimlessly in random directions
+
+            
+            ant.lineRenderer.enabled = enableViewRadius;
+            ant.drawViewRange(antViewRadius);
             ant.senseFood(antViewRadius, foodLayer);
             
             Vector2 desiredDirection = ant.targetFood != null ? ant.desiredDirection 
