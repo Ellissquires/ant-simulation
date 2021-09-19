@@ -3,25 +3,32 @@ using System.Collections.Generic;
 using UnityEngine;
 
 public class Ant {
-    public Transform antBody;
-    public Vector2 desiredDirection;
-    public Vector2 velocity;
-    public Vector2 position;
+    public string uid;
 
-    public Transform targetFood;
+    private Transform antBody;
+    private Transform targetFood;
+    private LayerMask foodLayer;
 
-    public LineRenderer lineRenderer;
-    public float viewRadius;
-    public LayerMask foodLayer;
+    private LineRenderer lineRenderer;
+    private float viewRadius;
 
-    public Ant(Transform antBody, float viewRadius, LayerMask layerMask) {
+    private Vector2 desiredDirection;
+    private Vector2 velocity;
+    
+    private Vector2 position;
+    public Vector2 previousPosition;
+
+    public bool searchingForFood = true;
+    public AntConfiguration configuration { get; set; }
+
+    public Ant(Transform antBody, LayerMask foodLayer) {
         this.antBody = antBody;
-        this.viewRadius = viewRadius;
-        this.foodLayer = layerMask;
+        this.foodLayer = foodLayer;
+        this.uid = System.Guid.NewGuid().ToString();
         lineRenderer = antBody.GetComponent<LineRenderer>();
     }
 
-    public void senseFood(float viewRadius, LayerMask foodLayer) {
+    public void senseFood() {
         if (targetFood == null) {
             Collider2D[] foodInRange = Physics2D.OverlapCircleAll(position, viewRadius, foodLayer);
             if (foodInRange.Length > 0) {
@@ -40,6 +47,37 @@ public class Ant {
                 targetFood = null;
             }
         }
+    }
+
+    public void move(float dt) {
+        desiredDirection = calculateDesiredDirection();
+        Vector2 desiredVelocity = desiredDirection * configuration.maxSpeed;
+        // Calculate the amount to steer towards the desired direction (acceleration)
+        Vector2 desiredSteeringForce = (desiredVelocity - velocity) * configuration.steerStrength;
+        // Clamp acceleration to set steerStrength
+        Vector2 acceleration = Vector2.ClampMagnitude(desiredSteeringForce, configuration.steerStrength);
+        // vnew = vold + (a * t), clamped to maximum speed
+        Vector2 newVelocity = Vector2.ClampMagnitude(velocity + acceleration * dt, configuration.maxSpeed);
+        // Calculate new position based on velocity and dt
+        Vector2 newPosition = position + newVelocity * dt;
+
+        // Dodgy collision detection - can probably be handled by the engine
+        if (newPosition.x >= configuration.maxX || newPosition.x <= -configuration.maxX) newVelocity.x = -newVelocity.x;
+        if (newPosition.y >= configuration.maxY || newPosition.y <= -configuration.maxY) newVelocity.y = -newVelocity.y;
+
+        velocity = newVelocity;
+        previousPosition = position;
+        position += newVelocity * Time.deltaTime;
+        
+        // Calculate angle to rotate sprite towards target
+        float angle = Mathf.Atan2(velocity.y, velocity.x) * Mathf.Rad2Deg;
+        antBody.SetPositionAndRotation(position, Quaternion.AngleAxis(angle - 90, Vector3.forward));
+    }
+
+    private Vector2 calculateDesiredDirection() {
+        Vector2 randomDirection = Random.insideUnitCircle * configuration.wanderStrength;
+        return targetFood != null ? desiredDirection
+            : (desiredDirection + randomDirection).normalized;
     }
 
     public void drawViewRange(float viewRadius) {

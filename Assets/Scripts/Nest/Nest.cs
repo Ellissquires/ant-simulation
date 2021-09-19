@@ -5,9 +5,12 @@ using UnityEngine;
 public class Nest : MonoBehaviour {
     [SerializeField]
     Transform antPrefab;
+    [SerializeField]
+    Transform homeMarkerPrefab;
 
-    Ant[] ants;
-    int antCount = 1000;
+    private Ant[] ants;
+    private int antCount = 100;
+    private LayerMask foodLayer;
 
     public float wanderStrength = 0.5f;
     public float steerStrength = 1.0f;
@@ -19,7 +22,9 @@ public class Nest : MonoBehaviour {
     public float antViewRadius = 0.5f;
     public bool enableViewRadius = true;
 
-    LayerMask foodLayer;
+    public float markerLifespan = 10.0f;
+
+    private PheromoneMap pheromoneMap = new PheromoneMap();
 
     private void Awake() {
         foodLayer = LayerMask.GetMask("Food");
@@ -28,47 +33,70 @@ public class Nest : MonoBehaviour {
             Transform antBody  = Instantiate(antPrefab, Vector3.zero, Quaternion.identity);
 
             antBody.SetParent(transform, false);
-            Ant newAnt = new Ant(antBody, antViewRadius, foodLayer);
+            Ant newAnt = new Ant(antBody, foodLayer);
             ants[i] = newAnt;
+
+            StartCoroutine(spawnMarker(newAnt));
         }
+
+        StartCoroutine(updateTrailVisibility());
     }
 
     private void Update() {
         for (int i = 0; i < ants.Length; i++) {
             Ant ant = ants[i];
-
-            
-            ant.lineRenderer.enabled = enableViewRadius;
-            ant.drawViewRange(antViewRadius);
-            ant.senseFood(antViewRadius, foodLayer);
-            
-            Vector2 desiredDirection = ant.targetFood != null ? ant.desiredDirection 
-                : (ant.desiredDirection + Random.insideUnitCircle * wanderStrength).normalized;
-            moveAnt(ant, desiredDirection);
+            ant.configuration = antConfiguration();
+            ant.senseFood();
+            ant.move(Time.deltaTime);
         }
     }
 
-    private void moveAnt(Ant ant, Vector2 desiredDirection) {
-        ant.desiredDirection = desiredDirection;
-        Vector2 desiredVelocity = ant.desiredDirection * maxSpeed;
-        // Calculate the amount to steer towards the desired direction (acceleration)
-        Vector2 desiredSteeringForce = (desiredVelocity - ant.velocity) * steerStrength;
-        // Clamp acceleration to set steerStrength
-        Vector2 acceleration = Vector2.ClampMagnitude(desiredSteeringForce, steerStrength);
-        // vnew = vold + (a * t), clamped to maximum speed
-        Vector2 newVelocity = Vector2.ClampMagnitude(ant.velocity + acceleration * Time.deltaTime, maxSpeed);
-        // Calculate new position based on velocity and dt
-        Vector2 newPosition = ant.position +  newVelocity * Time.deltaTime;
+    private AntConfiguration antConfiguration() {
+        return new AntConfiguration {
+            viewRadius = antViewRadius,
+            wanderStrength = wanderStrength,
+            steerStrength = steerStrength,
+            maxSpeed = maxSpeed,
+            maxX = width,
+            maxY = height,
+            enableViewRadius = enableViewRadius
+        };
+    }
 
-        // Dodgy collision detection - can probably be handled by the engine
-        if (newPosition.x >= width || newPosition.x <= -width) newVelocity.x = -newVelocity.x;
-        if (newPosition.y >= height || newPosition.y <= -height) newVelocity.y = -newVelocity.y;
+    private IEnumerator spawnMarker(Ant ant) {
+        for(;;) {
+            if (ant.searchingForFood) {
+                Vector3 markerPosition = new Vector3(ant.previousPosition.x, ant.previousPosition.y);
+                Transform homeMarker = Instantiate(homeMarkerPrefab, markerPosition, Quaternion.identity);
+                homeMarker.gameObject.hideFlags = HideFlags.HideInHierarchy;
 
-        ant.velocity = newVelocity;
-        ant.position += newVelocity * Time.deltaTime;
-        
-        // Calculate angle to rotate sprite towards target
-        float angle = Mathf.Atan2(ant.velocity.y, ant.velocity.x) + Mathf.Rad2Deg;
-        ant.antBody.SetPositionAndRotation(ant.position, Quaternion.Euler(0, 0, angle));
+                pheromoneMap.add(ant.uid, new Pheromone(PheromoneType.Home, homeMarker));
+            }
+
+            yield return new WaitForSeconds(0.35f);
+        }
+    }
+
+    private IEnumerator updateTrailVisibility() {
+        Color tempColor;
+        for(;;) {
+            foreach(KeyValuePair<string, List<Pheromone>> entry in pheromoneMap.get()){
+                List<Pheromone> pheromones = entry.Value;
+                List<Pheromone> pheromoneCopies = new List<Pheromone>(pheromones);
+
+                pheromoneCopies.ForEach(delegate(Pheromone pheromone) {
+                    float markerAge = Time.time - pheromone.creationTime;
+                    if (markerAge >= markerLifespan) {
+                        pheromones.Remove(pheromone);
+                        Destroy(pheromone.marker.gameObject);
+                    } else {
+                        tempColor = pheromone.marker.gameObject.GetComponent<Renderer>().material.color;
+                        tempColor.a = 1.0f - markerAge / markerLifespan;
+                        pheromone.marker.gameObject.GetComponent<Renderer>().material.color = tempColor;
+                    }
+                });
+            }
+            yield return new WaitForSeconds(1.0f);
+        }
     }
 }
